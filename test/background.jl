@@ -1,7 +1,7 @@
 using AtomicData
 using Interpolations
 using Unitful
-import Muspel: create_σ_itp_LTE, create_σ_itp_NLTE, get_atoms_bf_interpolant, σH_continuum, σH_atoms_bf
+import Vaf: create_σ_itp_LTE, create_σ_itp_NLTE, get_atoms_bf_interpolant, σH_continuum, σH_atoms_bf
 
 @testset "background.jl" begin
     abund = get_solar_abundances()

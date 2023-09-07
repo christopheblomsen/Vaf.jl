@@ -1,4 +1,4 @@
-using Muspel
+using Vaf
 using Test
 
 include("types.jl")       # done

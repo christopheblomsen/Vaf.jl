@@ -1,7 +1,7 @@
-name = "Muspel"
-uuid = "6074595b-091a-495a-9b39-045a690b2c53"
-authors = ["Tiago M. D. Pereira", "Edvarda Harnes"]
-version = "0.2.0"
+name = "Vaf"
+uuid = "81f36a18-366d-4264-8c1f-e36009a86ea9"
+authors = ["Tiago M. D. Pereira", "Edvarda Harnes", "Christophe K. Blomsen"]
+version = "0.1.0-DEV"
 
 [deps]
 AtomicData = "6b77412b-f4b7-4495-8b9c-778517285205"
@@ -20,20 +20,7 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [compat]
-AtomicData = "^0.1.4"
-FortranFiles = "^0.6"
-DelimitedFiles = "^1.6"
-HDF5 = "^0.16"
-Interpolations = "^0.14"
-PeriodicTable = "^1"
-PhysicalConstants = "^0.2.1"
-ProgressMeter = "^1.7.2"
-SpecialFunctions = "^2"
-StaticArrays = "^1.5.1"
-Transparency = "^0.2.1"
-Unitful = "^1"
-YAML = "^0.4.7"
-julia = "^1.6"
+julia = "1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

@@ -1,4 +1,4 @@
-module Muspel
+module Vaf
 
 export Atmosphere1D, Atmosphere3D
 export AtomicLine, AtomicContinuum, AtomicModel
@@ -27,6 +27,7 @@ import PhysicalConstants.CODATA2018: h, k_B, R_∞, c_0, m_e, m_u, e, ε_0, a_0
 import SpecialFunctions: erfcx
 using ProgressMeter
 
+# Write your package code here.
 
 include("types.jl")
 include("read_utils.jl")
