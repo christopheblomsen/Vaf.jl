@@ -100,7 +100,6 @@ function calc_line_1D!(
         buf.ΔλD[i] = doppler_width(line.λ0, line.mass, atm.temperature[i])
     end
     # Calculate line opacity and intensity
-    #=
     for (i, λ) in enumerate(line.λ)
         for iz in 1:atm.nz
             # Wavelength-dependent part
@@ -121,89 +120,55 @@ function calc_line_1D!(
         piecewise_1D_linear!(atm.z, buf.α_total, buf.source_function, buf.int_tmp)
         buf.intensity[i] = buf.int_tmp[1]
     end
-    =#
     a = damping(buf.γ[1], λ, buf.ΔλD[1])  # very small dependence on λ
     v = (λ - line.λ0 + line.λ0 * atm.velocity_z[1] / ustrip(c_0)) / buf.ΔλD[1]
-    profile = CuArray{Float32, 2}(undef, length(a), length(v))
-    @cuda threads=threads blocks=blocks voigt_profile!(
-        profile,
-        a,
-        v,
-    )
+    profile = voigt_profile(a, v, buf.ΔλD[1], threads, blocks)  # units nm^-1
+
+    return profile
+end
+
+function damping(γ, λ, ΔλD)
+    #ix = 
+    c1 = 1 / (4 * π * c_0)
+    damping_parameter = c1 * γ * λ^2 / ΔλD
     return nothing
 end
 
-function humlicek(z::Complex)
-    s = abs(real(z)) + imag(z)
-    if s > 15.0
-        # region I
-        w = im * invSqrtPi * z / (z * z - 0.5)
-    elseif s > 5.5
-        # region II
-        zz = z * z
-        w = im * (z * (zz * invSqrtPi - 1.4104739589)) / (0.75 + zz * (zz - 3.0))
-    else
-        x, y = real(z), imag(z)
-        t = y - im * x
-        if y >= 0.195 * abs(x) - 0.176
-            # region III
-            w = ((16.4955 + t * (20.20933 + t * (11.96482 + t * (3.778987 + 0.5642236 * t))))
-               / (16.4955 + t * (38.82363 + t * (39.27121 + t * (21.69274 + t * (6.699398 + t))))))
-        else
-            # region IV
-            u = t * t
-            nom = t * (36183.31 - u * (3321.99 - u * (1540.787 -  u *
-                   (219.031 - u * (35.7668 - u * (1.320522 - u * .56419))))))
-            den = 32066.6 - u * (24322.8 - u * (9022.23 - u * (2186.18 -
-                    u * (364.219 - u * (61.5704 - u * (1.84144 - u))))))
-            w = exp(u) - nom / den
-        end
+function wavelength_independent_part()
+    #=
+    for i in 1:atm.nz
+        buf.α_c[i] = α_cont(
+            σ_itp,
+            atm.temperature[i],
+            atm.electron_density[i],
+            atm.hydrogen1_density[i],
+            atm.proton_density[i]
+        )
+        buf.j_c[i] = buf.α_c[i] * blackbody_λ(line.λ0, atm.temperature[i])
+        buf.γ[i] = calc_broadening(
+            line.γ,
+            atm.temperature[i],
+            atm.electron_density[i],
+            atm.hydrogen1_density[i]
+        )
+        buf.ΔλD[i] = doppler_width(line.λ0, line.mass, atm.temperature[i])
     end
-    return w
-end
+    =#
+    # Must calculate α_cont, blackbody_λ and calc_broadening on the gpu
 
-function humlicek!(a::AbstractArray{T},
-                v::AbstractArray{T},
-                ans::AbstractArray{T}) where {T <: AbstractFloat}
-    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-
-    w = Complex(0f0, 0f0)
-    if (ix > 1 && ix < size(a, 1) && ix < size(v, 1))
-        z = CUDA.Complex(a[ix], v[ix])
-        s = abs(CUDA.real(a[ix])) + CUDA.imag(v[ix])
-        if s > 15.0
-            # region I
-            w = im * invSqrtPi * z / (z * z - 0.5)
-        elseif s > 5.5
-            # region II
-            zz = z * z
-            w = im * (z * (zz * invSqrtPi - 1.4104739589)) / (0.75 + zz * (zz - 3.0))
-        else
-            x, y = real(z), imag(z)
-            t = y - im * x
-            if y >= 0.195 * abs(x) - 0.176
-                # region III
-                w = ((16.4955 + t * (20.20933 + t * (11.96482 + t * (3.778987 + 0.5642236 * t))))
-                   / (16.4955 + t * (38.82363 + t * (39.27121 + t * (21.69274 + t * (6.699398 + t)))                )))
-            else
-                # region IV
-                u = t * t
-                nom = t * (36183.31 - u * (3321.99 - u * (1540.787 -  u *
-                       (219.031 - u * (35.7668 - u * (1.320522 - u * .56419))))))
-                den = 32066.6 - u * (24322.8 - u * (9022.23 - u * (2186.18 -
-                        u * (364.219 - u * (61.5704 - u * (1.84144 - u))))))
-                w = exp(u) - nom / den
-            end
-        end
-        ans[ix] = w
-    end
     return nothing
 end
 
-function voigt_profile(a, v, ΔD, threads::Tuple, blocks::Tuple)
-    profile = CuArray{ComplexF32, 1}(undef, length(v))
-    
-    @cuda threads=threads blocks=blocks humlicek!(a, v, profile)
-
-    return profile * invSqrtPi / ΔD
+function α_cont(
+    itp::ExtinctionItpLTE{<: Real},
+    temperature::T,
+    electron_density::T,
+    hydrogen_density::T,
+    )::T where T <: AbstractFloat
+    log_temp = CUDA.log10(temperature)
+    log_ne = CUDA.log10(electron_density)
+    α = itp.σ_H(log_temp, log_ne) * hydrogen_density
+    α += (itp.σ_H2(log_temp, log_ne) * hydrogen_density) * hydrogen_density
+    α += σ_THOMSON * electron_density
+    return α
 end
