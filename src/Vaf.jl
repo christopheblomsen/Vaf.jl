@@ -15,6 +15,8 @@ export doppler_width, damping, calc_broadening, create_voigt_itp
 export blackbody_λ
 export calc_line_1D!
 export incline_atmos, incline_data!, incline_data_inv!, project_vector!
+export addition!, subtract!, multiply!, divide!
+export humlicek!, voigt_profile
 
 using AtomicData
 using Interpolations
@@ -39,5 +41,8 @@ include("read_atmos.jl")
 include("utils.jl")
 include("intensity.jl")
 include("incline.jl")
+include("gpu_arithmetics.jl")
+include("gpu_solution.jl")
+include("voigt.jl")
 
 end

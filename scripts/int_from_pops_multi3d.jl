@@ -1,8 +1,9 @@
-using Muspel
+using Vaf
 using AtomicData
 using HDF5
 using ProgressMeter
 using Base.Threads
+using CUDA
 
 
 """
@@ -48,6 +49,21 @@ function calc_multi3d_8542(mesh_file, atmos_file, pops_file, atom_file)
     intensity = Array{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
     p = ProgressMeter.Progress(atmos.nx)
 
+    threads = (32, 1)
+    blocks = (atmos.nx÷thread[1], 1)
+
+    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
+
+    if ix <= atmos.nx && iy <= atmos.ny
+        buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
+        for j in 1:atmos.ny
+            @cuda blocks=blocks threads=threads calc_line_1D!(my_line, buf, atmos[j, ix], n_u[:, j, ix], n_l[:, j, ix], σ_itp, voigt_itp)
+            intensity[:, j, ix] = buf.intensity
+        end
+        ProgressMeter.next!(p)
+    end
+    #=
     Threads.@threads for i in 1:atmos.nx
         buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
         for j in 1:atmos.ny
@@ -56,6 +72,7 @@ function calc_multi3d_8542(mesh_file, atmos_file, pops_file, atom_file)
         end
         ProgressMeter.next!(p)
     end
+    =#
 
     return intensity
 end
@@ -107,6 +124,7 @@ function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file)
     intensity = Array{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
     p = ProgressMeter.Progress(atmos.nx)
 
+
     Threads.@threads for i in 1:atmos.nx
         buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
         for j in 1:atmos.ny
@@ -117,4 +135,43 @@ function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file)
     end
 
     return intensity
+end
+
+function calc_multi3d_hα!(mesh_file, atmos_file, pops_file, atom_file, threads, blocks)
+    h_atom = read_atom(atom_file)
+    my_line = h_atom.lines[5]  #  index 5 for Halpha
+
+    atmos, h_pops = read_atmos_hpops_multi3d(mesh_file, atmos_file, pops_file)
+    n_u = h_pops[:, :, :, 3]
+    n_l = h_pops[:, :, :, 2]
+
+    # Continuum opacity structures
+    bckgr_atoms = [
+        "Al.yaml",
+        "C.yaml",
+        "Ca.yaml",
+        "Fe.yaml",
+        "H_6.yaml",
+        "He.yaml",
+        "KI.yaml",
+        "Mg.yaml",
+        "N.yaml",
+        "Na.yaml",
+        "NiI.yaml",
+        "O.yaml",
+        "S.yaml",
+        "Si.yaml",
+    ]
+    atom_files = [joinpath(AtomicData.get_atom_dir(), a) for a in bckgr_atoms]
+    σ_itp = get_σ_itp(atmos, my_line.λ0, atom_files)
+
+    a = LinRange(1f-4, 1.5f1, 20_000)
+    v = LinRange(0f2, 5f2, 20_000)
+    voigt = voigt_profile(a, v, 1f0, threads, blocks)
+
+    intensity = CuArray{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
+
+    
+    return intensity
+
 end

@@ -171,3 +171,10 @@ struct RTBuffer{T <: AbstractFloat}
         new{T}(ndep, nλ, intensity, source_function, α_total, α_c, j_c, ΔλD, γ, int_tmp)
     end
 end
+
+struct DepthBuffer{N <: Int,
+                    T <: AbstractFloat, 
+                    A <: AbstractArray{T, N}}
+    ndep::Int
+    intensity::A
+end
