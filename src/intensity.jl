@@ -42,11 +42,14 @@ function calc_line_1D!(
             atm.electron_density[i],
             atm.hydrogen1_density[i]
         )
+        # This can also go in the kernel
         buf.ΔλD[i] = doppler_width(line.λ0, line.mass, atm.temperature[i])
     end
     # Calculate line opacity and intensity
     for (i, λ) in enumerate(line.λ)
+        # A kernel here instead
         for iz in 1:atm.nz
+            # All of this in kernel that takes 3D arrays
             # Wavelength-dependent part
             a = damping(buf.γ[iz], λ, buf.ΔλD[iz])  # very small dependence on λ
             v = (λ - line.λ0 + line.λ0 * atm.velocity_z[iz] / ustrip(c_0)) / buf.ΔλD[iz]
@@ -62,6 +65,7 @@ function calc_line_1D!(
             buf.source_function[iz] = j_tmp / α_tmp
             buf.α_total[iz] = α_tmp
         end
+        # long run 
         piecewise_1D_linear!(atm.z, buf.α_total, buf.source_function, buf.int_tmp)
         buf.intensity[i] = buf.int_tmp[1]
     end
@@ -76,9 +80,7 @@ function calc_line_1D!(
     n_lo::AbstractVector{T},
     σ_itp::ExtinctionItpNLTE{<:Real},
     voigt_itp::Interpolations.AbstractInterpolation{<:Real, 2},
-    threads::Tuple{Int, Int},
-    blocks::Tuple{Int, Int},
-) where T <: AbstractFloat
+    ) where T <: AbstractFloat
     γ_energy = ustrip((h * c_0 / (4 * π * line.λ0 * u"nm")) |> u"J")
 
     # wavelength-independent part (continuum + broadening + Doppler width)
@@ -134,8 +136,20 @@ function damping(γ, λ, ΔλD)
     return nothing
 end
 
-function wavelength_independent_part()
-    #=
+function calc_line_1D!(
+    line::AtomicLine,
+    buf::RTBuffer{T},
+    atm::Atmosphere1D{1, T},
+    n_up::AbstractVector{T},
+    n_lo::AbstractVector{T},
+    σ_itp::ExtinctionItpNLTE{<:Real},
+    threads::Tuple{Int, Int},
+    blocks::Tuple{Int, Int},
+    ) where T <: AbstractFloat
+    γ_energy_d = ustrip((Unitful.h * Unitful.c_0 / (4 * π * line.λ0 * u"nm")) |> u"J")
+    n_lo_d = CuArray(n_lo)
+    n_up_d = CuArray(n_up)
+    # wavelength-independent part (continuum + broadening + Doppler width)
     for i in 1:atm.nz
         buf.α_c[i] = α_cont(
             σ_itp,
@@ -153,22 +167,39 @@ function wavelength_independent_part()
         )
         buf.ΔλD[i] = doppler_width(line.λ0, line.mass, atm.temperature[i])
     end
-    =#
-    # Must calculate α_cont, blackbody_λ and calc_broadening on the gpu
+    c_0 = Float32(ustrip(Unitful.c0))
+    k_B = Float32(ustrip(Unitful.k))
+    λ0 = Float32(line.λ0)
+    
+    α_cont_d = CuArray(buf.α_c)
+    j_cont_d = CuArray(buf.j_c)
+    γ_d = CuArray(buf.γ)
+    temperature_d = CuArray(atm.temperature)
+    velocity_z_d = CuArray(atm.velocity_z)
+    
+    α_tot_d = CUDA.fill(0f0, (atm.nz, atm.nz, atm.nz))
+    source_d = CUDA.fill(0f0, (atm.nz, atm.nz, atm.nz))
+    profile_d = CUDA.fill(0f0, (atm.nz, atm.nz, atm.nz))
 
-    return nothing
-end
+    constants_d = GPUinfo(c_0, k_B, λ0, λ, mass, γ_energy_d, 
+                    Float32(line.Bul), Float32(line.Blu), Float32(line.Aul));
+    
+    # Calculate line opacity and intensity
+    for λ in line.λ
 
-function α_cont(
-    itp::ExtinctionItpLTE{<: Real},
-    temperature::T,
-    electron_density::T,
-    hydrogen_density::T,
-    )::T where T <: AbstractFloat
-    log_temp = CUDA.log10(temperature)
-    log_ne = CUDA.log10(electron_density)
-    α = itp.σ_H(log_temp, log_ne) * hydrogen_density
-    α += (itp.σ_H2(log_temp, log_ne) * hydrogen_density) * hydrogen_density
-    α += σ_THOMSON * electron_density
-    return α
+        begin @cuda threads=threads blocks=blocks 
+                inner_loop!(α_tot_d, source_d, α_cont_d,
+                            j_cont_d, temperature_d, γ_d,
+                            velocity_z_d, constants_d, profile_d, 
+                            n_lo_d, n_up_d); synchronize()
+        end
+                
+        piecewise_1D_linear!(atm.z, buf.α_total, buf.source_function, buf.int_tmp)
+        buf.intensity[i] = buf.int_tmp[1]
+    end
+    a = damping(buf.γ[1], λ, buf.ΔλD[1])  # very small dependence on λ
+    v = (λ - line.λ0 + line.λ0 * atm.velocity_z[1] / ustrip(c_0)) / buf.ΔλD[1]
+    profile = voigt_profile(a, v, buf.ΔλD[1], threads, blocks)  # units nm^-1
+
+    return profile
 end

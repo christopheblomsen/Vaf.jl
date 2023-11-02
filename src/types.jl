@@ -178,3 +178,15 @@ struct DepthBuffer{N <: Int,
     ndep::Int
     intensity::A
 end
+
+struct GPUinfo{T <: Float32}
+    c_0::T
+    k_B::T
+    λ0::T
+    λ::T
+    mass::T
+    γ_energy::T
+    Bul::T
+    Blu::T
+    Aul::T
+end
