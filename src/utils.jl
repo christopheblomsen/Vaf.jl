@@ -87,29 +87,3 @@ function inner_loop_cpu!(line, buf, atm)
         buf.α_total[iz] = α_tmp
     end
 end
-
-function profile_test(α_tot, source, α_c, j_c, temperature,
-                    γ, velocity_z, constants, profile, 
-                    n_lo, n_up)
-    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
-    iz = (blockIdx().z - 1) * blockDim().z + threadIdx().z
-    ΔλD = 1f0
-    if (ix <= size(α_tot, 1) && iy <= size(α_tot, 2) && iz <= size(α_tot, 3))
-        #ΔλD = constants.λ0 / constants.c_0 * sqrt(2 * constants.k_B * temperature[ix, iy, iz] / constants.mass)
-        a = ( γ[ix, iy, iz] * constants.λ^2 ) / (4 * π * constants.c_0) / ΔλD
-        v = (constants.λ - constants.λ0 + constants.λ0 * velocity_z[ix, iy, iz] / constants.c_0) / ΔλD
-        profile[ix, iy, iz] = voigt_humlicek(a, v)
-    end
-    return nothing
-end
-
-# Conclusion is that only the constants can be past as a struct
-function GPUtest(GPUstruct, A)
-    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    if (ix <= size(A, 1))    
-        A[ix] = GPUstruct.c_0 * GPUstruct.k_B
-        #A[ix] = GPUstruct.c_0 * GPUstruct.length[ix]
-    end
-    return nothing
-end
