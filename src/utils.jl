@@ -44,14 +44,14 @@ that is paralized over wavelength and the arrays are 3D
 
 function inner_loop!(α_tot, source, α_cont, j_cont, temperature,
                     γ, velocity_z, constants, profile, 
-                    n_lo, n_up)
+                    n_lo, n_up, λ)
     ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
     iz = (blockIdx().z - 1) * blockDim().z + threadIdx().z
     if (ix <= size(α_cont, 1) && iy <= size(α_cont, 2) && iz <= size(α_cont, 3))
         ΔλD = constants.λ0 / constants.c_0 * sqrt(2 * constants.k_B * temperature[ix, iy, iz] / constants.mass)
-        a = ( γ[ix, iy, iz] * constants.λ^2 ) / (4 * π * constants.c_0) / ΔλD
-        v = (constants.λ - constants.λ0 + constants.λ0 * velocity_z[ix, iy, iz] / constants.c_0) / ΔλD
+        a = ( γ[ix, iy, iz] * λ^2 ) / (4 * π * constants.c_0) / ΔλD
+        v = (λ - constants.λ0 + constants.λ0 * velocity_z[ix, iy, iz] / constants.c_0) / ΔλD
         profile[ix, iy, iz] = voigt_humlicek(a, v) / (sqrt(π) * ΔλD)
         #profile = voigt_humlicek(a, v)
         

@@ -181,7 +181,7 @@ function calc_line_1D!(
     source_d = CUDA.fill(0f0, (atm.nz, atm.nz, atm.nz))
     profile_d = CUDA.fill(0f0, (atm.nz, atm.nz, atm.nz))
 
-    constants_d = GPUinfo(c_0, k_B, λ0, λ, mass, γ_energy_d, 
+    constants_d = GPUinfo(c_0, k_B, λ0, mass, γ_energy_d, 
                     Float32(line.Bul), Float32(line.Blu), Float32(line.Aul));
     
     # Calculate line opacity and intensity
@@ -190,8 +190,8 @@ function calc_line_1D!(
         begin @cuda threads=threads blocks=blocks 
                 inner_loop!(α_tot_d, source_d, α_cont_d,
                             j_cont_d, temperature_d, γ_d,
-                            velocity_z_d, constants_d, profile_d, 
-                            n_lo_d, n_up_d); synchronize()
+                            velocity_z_d, constants_d, λ, 
+                            profile_d, n_lo_d, n_up_d); synchronize()
         end
                 
         piecewise_1D_linear!(atm.z, buf.α_total, buf.source_function, buf.int_tmp)
