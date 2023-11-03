@@ -36,19 +36,19 @@ function source_function(source,
 end
 
 """
-    inner_loop!(α_cont, source, α_total)
+    inner_loop!(α_c, source, α_total)
 
 Calculates the inner loop of the formal solver. This is the part that
 that is paralized over wavelength and the arrays are 3D
 """
 
-function inner_loop!(α_tot, source, α_cont, j_cont, temperature,
+function inner_loop!(α_tot, source, α_c, j_c, temperature,
                     γ, velocity_z, constants, profile, 
                     n_lo, n_up, λ)
     ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
     iz = (blockIdx().z - 1) * blockDim().z + threadIdx().z
-    if (ix <= size(α_cont, 1) && iy <= size(α_cont, 2) && iz <= size(α_cont, 3))
+    if (ix <= size(α_c, 1) && iy <= size(α_c, 2) && iz <= size(α_c, 3))
         ΔλD = constants.λ0 / constants.c_0 * sqrt(2 * constants.k_B * temperature[ix, iy, iz] / constants.mass)
         a = ( γ[ix, iy, iz] * λ^2 ) / (4 * π * constants.c_0) / ΔλD
         v = (λ - constants.λ0 + constants.λ0 * velocity_z[ix, iy, iz] / constants.c_0) / ΔλD
@@ -59,8 +59,8 @@ function inner_loop!(α_tot, source, α_cont, j_cont, temperature,
         j_tmp = α_tmp
         α_tmp *= n_lo[ix, iy, iz] * constants.Blu - n_up[ix, iy, iz] * constants.Bul
         j_tmp *= n_up[ix, iy, iz] * constants.Aul
-        α_tmp = α_tmp * 1f9 + α_cont[ix, iy, iz]   # convert α_tmp to m^-1
-        j_tmp = j_tmp * 1f-3 + j_cont[ix, iy, iz]  # convert j_tmp to kW m^3 nm^-1
+        α_tmp = α_tmp * 1f9 + α_c[ix, iy, iz]   # convert α_tmp to m^-1
+        j_tmp = j_tmp * 1f-3 + j_c[ix, iy, iz]  # convert j_tmp to kW m^3 nm^-1
 
         source[ix, iy, iz] = j_tmp / α_tmp
         α_tot[ix, iy, iz] = α_tmp
@@ -88,7 +88,7 @@ function inner_loop_cpu!(line, buf, atm)
     end
 end
 
-function profile_test(α_tot, source, α_cont, j_cont, temperature,
+function profile_test(α_tot, source, α_c, j_c, temperature,
                     γ, velocity_z, constants, profile, 
                     n_lo, n_up)
     ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
