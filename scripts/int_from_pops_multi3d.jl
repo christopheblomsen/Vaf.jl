@@ -3,7 +3,6 @@ using AtomicData
 using HDF5
 using ProgressMeter
 using Base.Threads
-using CUDA
 
 
 """
@@ -49,21 +48,6 @@ function calc_multi3d_8542(mesh_file, atmos_file, pops_file, atom_file)
     intensity = Array{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
     p = ProgressMeter.Progress(atmos.nx)
 
-    threads = (32, 1)
-    blocks = (atmos.nx÷thread[1], 1)
-
-    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
-
-    if ix <= atmos.nx && iy <= atmos.ny
-        buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
-        for j in 1:atmos.ny
-            @cuda blocks=blocks threads=threads calc_line_1D!(my_line, buf, atmos[j, ix], n_u[:, j, ix], n_l[:, j, ix], σ_itp, voigt_itp)
-            intensity[:, j, ix] = buf.intensity
-        end
-        ProgressMeter.next!(p)
-    end
-    #=
     Threads.@threads for i in 1:atmos.nx
         buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
         for j in 1:atmos.ny
@@ -72,7 +56,6 @@ function calc_multi3d_8542(mesh_file, atmos_file, pops_file, atom_file)
         end
         ProgressMeter.next!(p)
     end
-    =#
 
     return intensity
 end
@@ -124,7 +107,6 @@ function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file)
     intensity = Array{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
     p = ProgressMeter.Progress(atmos.nx)
 
-
     Threads.@threads for i in 1:atmos.nx
         buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
         for j in 1:atmos.ny
@@ -137,7 +119,7 @@ function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file)
     return intensity
 end
 
-function calc_multi3d_hα!(mesh_file, atmos_file, pops_file, atom_file, threads, blocks)
+function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file, GPU::Bool)
     h_atom = read_atom(atom_file)
     my_line = h_atom.lines[5]  #  index 5 for Halpha
 
@@ -165,13 +147,61 @@ function calc_multi3d_hα!(mesh_file, atmos_file, pops_file, atom_file, threads,
     atom_files = [joinpath(AtomicData.get_atom_dir(), a) for a in bckgr_atoms]
     σ_itp = get_σ_itp(atmos, my_line.λ0, atom_files)
 
-    a = LinRange(1f-4, 1.5f1, 20_000)
-    v = LinRange(0f2, 5f2, 20_000)
-    voigt = voigt_profile(a, v, 1f0, threads, blocks)
 
     intensity = CuArray{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
 
-    
-    return intensity
+    buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
+    calc_line_3D!(intensity, my_line, buf, atmos, n_u, n_l, σ_itp, threads, blocks)
 
+    return intensity
+end
+
+function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file, gpu::Bool)
+    h_atom = read_atom(atom_file)
+    my_line = h_atom.lines[5]  #  index 5 for Halpha
+
+    atmos, h_pops = read_atmos_hpops_multi3d(mesh_file, atmos_file, pops_file)
+    n_u = h_pops[:, :, :, 3]
+    n_l = h_pops[:, :, :, 2]
+
+    # Continuum opacity structures
+    bckgr_atoms = [
+        "Al.yaml",
+        "C.yaml",
+        "Ca.yaml",
+        "Fe.yaml",
+        "H_6.yaml",
+        "He.yaml",
+        "KI.yaml",
+        "Mg.yaml",
+        "N.yaml",
+        "Na.yaml",
+        "NiI.yaml",
+        "O.yaml",
+        "S.yaml",
+        "Si.yaml",
+    ]
+    atom_files = [joinpath(AtomicData.get_atom_dir(), a) for a in bckgr_atoms]
+    σ_itp = get_σ_itp(atmos, my_line.λ0, atom_files)
+
+    a = LinRange(1f-4, 1.5f1, 20000)
+    v = LinRange(0f2, 5f2, 2500)
+    voigt_itp = create_voigt_itp(a, v)
+
+    intensity = CUDA.Array{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
+    
+    threads = (32, 8, 1)
+    blocks = (atmos.nx÷threads[1], atmos.ny÷threads[2], atmos.nz÷threads[3])
+    
+    p = ProgressMeter.Progress(atmos.nx)
+    for i in 1:atmos.nx
+        buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
+        for j in 1:atmos.ny
+            calc_line_1D_GPU!(intensity, my_line, buf, atmos[j, i], n_u[:, j, i], n_l[:, j, i], σ_itp, threads, blocks)
+            intensity[:, j, i] = buf.intensity
+        end
+        ProgressMeter.next!(p)
+    end
+
+    return intensity
 end
