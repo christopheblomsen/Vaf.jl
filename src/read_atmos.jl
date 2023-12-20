@@ -144,7 +144,7 @@ function read_atmos_multi3d(mesh_file, atmos_file; FloatT=Float32, grph=2.380491
     Threads.@threads for i in 1:nz
         for j in 1:ny, k in 1:nx
             ne = electron_density[k, j, i] / u_l^3
-            ionfrac = Muspel.h_ionfrac_saha(temperature[k, j, i], ne)
+            ionfrac = Vaf.h_ionfrac_saha(temperature[k, j, i], ne)
             proton_density_tr[i, j, k] = nH[k, j, i] * rho_to_nH * ionfrac
             nH_tr[i, j, k] = nH[k, j, i] * rho_to_nH * (1 - ionfrac)
             temperature_tr[i, j, k] = temperature[k, j, i]

@@ -168,6 +168,28 @@ function piecewise_1D_linear!(
 end
 
 
+function piecewise_1D_linear_calculation!(intensity, incr, w1, w2, Δτ, ΔS)
+    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+
+    if (ix > 1 && ix < size(intensity))
+        Δτ = abs(z[ix] - z[ix-incr]) * (α[ix] + α[ix - incr]) / 2
+        ΔS = (source_function[ix - incr] - source_function[ix]) / Δτ
+
+        if Δτ < 5e-4
+            w1 = Δτ * (1 - Δτ / 2)
+            w2 = Δτ^2 * (0.5f0 - Δτ / 3)
+        elseif Δτ > 50
+            w1 = w2 = one(T)
+        else
+            expΔτ = CUDA.exp(-Δτ)
+            w1 = 1 - expΔτ
+            w2 = w1 - Δτ * expΔτ
+        end
+
+        intensity[ix] = (1 - w1)*intensity[ix - incr] + w1*source_function[ix] + w2*ΔS
+    end
+    return nothing
+end
 
 
 """
