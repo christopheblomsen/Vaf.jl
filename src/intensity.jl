@@ -1,8 +1,7 @@
-using CUDA
+# Functions to calculate intensity and related quantities
 
-const invSqrtPi = 1f0 / CUDA.sqrt(π)
-# Functions to calculate intensity.
-#=
+
+"""
     function calc_line_1D!(
         line::AtomicLine,
         buf::RTBuffer{T},
@@ -14,7 +13,7 @@ const invSqrtPi = 1f0 / CUDA.sqrt(π)
     )
 
 Calculate emerging disk-centre intensity for a given line in a 1D atmosphere.
-=#
+"""
 function calc_line_1D!(
     line::AtomicLine,
     buf::RTBuffer{T},
@@ -69,6 +68,39 @@ function calc_line_1D!(
         # long run 
         piecewise_1D_linear!(atm.z, buf.α_total, buf.source_function, buf.int_tmp)
         buf.intensity[i] = buf.int_tmp[1]
+    end
+    return nothing
+end
+
+
+"""
+Calculate continuum optical depth in the vertical direction,
+from the observer to the stellar interior. The wavelength
+is defined by σ_itp,
+"""
+function calc_τ_cont!(
+    atm::Atmosphere1D{1, T},
+    τ::AbstractVector{<:Real},
+    σ_itp::ExtinctionItpNLTE{<:Real},
+) where T <: AbstractFloat
+    τ[1] = zero(T)
+    α = α_cont(
+        σ_itp,
+        atm.temperature[1],
+        atm.electron_density[1],
+        atm.hydrogen1_density[1],
+        atm.proton_density[1]
+    )
+    for i in 2:atm.nz
+        α_next = α_cont(
+            σ_itp,
+            atm.temperature[i],
+            atm.electron_density[i],
+            atm.hydrogen1_density[i],
+            atm.proton_density[i]
+        )
+        τ[i] = τ[i-1] + abs(atm.z[i] - atm.z[i-1]) * (α + α_next) / 2
+        α = α_next
     end
     return nothing
 end
