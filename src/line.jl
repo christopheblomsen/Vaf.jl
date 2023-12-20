@@ -41,6 +41,29 @@ function calc_broadening(
     return γ
 end
 
+function calc_broadening(
+    γ::AbstractArray{T, 1},
+    γ_params::LineBroadening,
+    temperature::T,
+    e_density::T,
+    h_neutral_density::T
+)::T where T <: AbstractFloat
+    #γ = zero(T)
+    # Natural broadening
+    γ += γ_params.natural
+    nprocess = length(γ_params.coeff)
+    for i in 1:nprocess
+        γ += (
+            γ_params.coeff[i] *
+            temperature ^ γ_params.temp_exp[i] *
+            e_density ^ γ_params.electron_exp[i] *
+            h_neutral_density ^ γ_params.hydrogen_exp[i]
+        )
+    end
+    return nothing
+end
+
+
 
 function create_voigt_itp(a::AbstractArray{T}, v::AbstractRange) where {T <: AbstractFloat}
     tmp = Array{T, 2}(undef, length(a), length(v))

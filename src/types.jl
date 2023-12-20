@@ -100,7 +100,8 @@ struct LineBroadening{N, T} <: AbstractBroadening{T}
 end
 
 
-struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer}
+struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer, 
+                V <: AbstractVector{FloatT}}
     nλ::IntT
     χup::FloatT
     χlo::FloatT
@@ -112,7 +113,7 @@ struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer}
     λ0::FloatT  # in nm
     f_value::FloatT
     mass::FloatT
-    λ::Vector{FloatT}
+    λ::V
     PRD::Bool
     Voigt::Bool
     label_up::String

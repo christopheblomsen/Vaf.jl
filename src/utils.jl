@@ -42,9 +42,20 @@ Calculates the inner loop of the formal solver. This is the part that
 that is paralized over wavelength and the arrays are 3D
 """
 
-function inner_loop!(α_tot, source, α_c, j_c, temperature,
-                    γ, velocity_z, constants, profile, 
-                    n_lo, n_up, λ)
+function inner_loop!(
+    α_tot::AbstractArray{T, 3}, 
+    source::AbstractArray{T, 3},
+    α_c::AbstractArray{T, 3},
+    j_c::AbstractArray{T, 3},
+    temperature::AbstractArray{T, 3},
+    γ::AbstractArray{T, 3},
+    velocity_z::AbstractArray{T, 3},
+    constants::GPUinfo, 
+    profile::AbstractArray{T, 3},
+    n_lo::AbstractArray{T, 3},
+    n_up::AbstractArray{T, 3},
+    λ::T,
+    ) where T <:AbstractFloat
     ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
     iz = (blockIdx().z - 1) * blockDim().z + threadIdx().z
@@ -53,7 +64,6 @@ function inner_loop!(α_tot, source, α_c, j_c, temperature,
         a = ( γ[ix, iy, iz] * λ^2 ) / (4 * π * constants.c_0) / ΔλD
         v = (λ - constants.λ0 + constants.λ0 * velocity_z[ix, iy, iz] / constants.c_0) / ΔλD
         profile[ix, iy, iz] = voigt_humlicek(a, v) / (sqrt(π) * ΔλD)
-        #profile = voigt_humlicek(a, v)
         
         α_tmp = constants.γ_energy * profile[ix, iy, iz]
         j_tmp = α_tmp
@@ -67,6 +77,42 @@ function inner_loop!(α_tot, source, α_c, j_c, temperature,
     end 
     return nothing 
 end
+
+function inner_loop_1D!(
+    α_tot::AbstractArray{T, 1}, 
+    source::AbstractArray{T, 1},
+    α_c::AbstractArray{T, 1}, 
+    j_c::AbstractArray{T, 1}, 
+    temperature::AbstractArray{T, 1},
+    γ::AbstractArray{T, 1}, 
+    velocity_z::AbstractArray{T, 1},
+    constants::GPUinfo, 
+    profile::AbstractArray{T, 1}, 
+    n_lo::AbstractArray{T, 1}, 
+    n_up::AbstractArray{T, 1}, 
+    λ::T,
+    ) where T <: AbstractFloat
+    iz = (blockIdx().z - 1) * blockDim().z + threadIdx().z
+    if (iz <= size(α_c, 1))
+        ΔλD = constants.λ0 / constants.c_0 * sqrt(2 * constants.k_B * temperature[iz] / constants.mass)
+        a = ( γ[iz] * λ^2 ) / (4 * π * constants.c_0) / ΔλD
+        v = (λ - constants.λ0 + constants.λ0 * velocity_z[iz] / constants.c_0) / ΔλD
+        profile[iz] = voigt_humlicek(a, v) / (sqrt(π) * ΔλD)
+        #profile = voigt_humlicek(a, v)
+        
+        α_tmp = constants.γ_energy * profile[iz]
+        j_tmp = α_tmp
+        α_tmp *= n_lo[iz] * constants.Blu - n_up[iz] * constants.Bul
+        j_tmp *= n_up[iz] * constants.Aul
+        α_tmp = α_tmp * 1f9 + α_c[iz]   # convert α_tmp to m^-1
+        j_tmp = j_tmp * 1f-3 + j_c[iz]  # convert j_tmp to kW m^3 nm^-1
+
+        source[iz] = j_tmp / α_tmp
+        α_tot[iz] = α_tmp
+    end 
+    return nothing 
+end
+
 
 function inner_loop_cpu!(line, buf, atm)
     for iz in 1:atm.nz
