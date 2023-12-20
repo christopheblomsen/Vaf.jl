@@ -1,4 +1,5 @@
 using Vaf
+using CUDA
 using AtomicData
 using HDF5
 using ProgressMeter
@@ -119,43 +120,6 @@ function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file)
     return intensity
 end
 
-function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file, GPU::Bool)
-    h_atom = read_atom(atom_file)
-    my_line = h_atom.lines[5]  #  index 5 for Halpha
-
-    atmos, h_pops = read_atmos_hpops_multi3d(mesh_file, atmos_file, pops_file)
-    n_u = h_pops[:, :, :, 3]
-    n_l = h_pops[:, :, :, 2]
-
-    # Continuum opacity structures
-    bckgr_atoms = [
-        "Al.yaml",
-        "C.yaml",
-        "Ca.yaml",
-        "Fe.yaml",
-        "H_6.yaml",
-        "He.yaml",
-        "KI.yaml",
-        "Mg.yaml",
-        "N.yaml",
-        "Na.yaml",
-        "NiI.yaml",
-        "O.yaml",
-        "S.yaml",
-        "Si.yaml",
-    ]
-    atom_files = [joinpath(AtomicData.get_atom_dir(), a) for a in bckgr_atoms]
-    σ_itp = get_σ_itp(atmos, my_line.λ0, atom_files)
-
-
-    intensity = CuArray{Float32, 3}(undef, my_line.nλ, atmos.nx, atmos.ny)
-
-    buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
-    calc_line_3D!(intensity, my_line, buf, atmos, n_u, n_l, σ_itp, threads, blocks)
-
-    return intensity
-end
-
 function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file, gpu::Bool)
     h_atom = read_atom(atom_file)
     my_line = h_atom.lines[5]  #  index 5 for Halpha
@@ -197,7 +161,7 @@ function calc_multi3d_hα(mesh_file, atmos_file, pops_file, atom_file, gpu::Bool
     for i in 1:atmos.nx
         buf = RTBuffer(atmos.nz, my_line.nλ, Float32)  # allocate inside for local scope
         for j in 1:atmos.ny
-            calc_line_1D_GPU!(intensity, my_line, buf, atmos[j, i], n_u[:, j, i], n_l[:, j, i], σ_itp, threads, blocks)
+            Vaf.calc_line_1D_GPU!(intensity, my_line, buf, atmos[j, i], n_u[:, j, i], n_l[:, j, i], σ_itp, threads, blocks)
             intensity[:, j, i] = buf.intensity
         end
         ProgressMeter.next!(p)
