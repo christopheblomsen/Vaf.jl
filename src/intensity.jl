@@ -1,5 +1,9 @@
 # Functions to calculate intensity and related quantities
 
+using CUDA
+
+const invSqrtPi = 1 / sqrt(π)
+
 
 """
     function calc_line_1D!(

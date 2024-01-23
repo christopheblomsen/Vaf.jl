@@ -100,8 +100,7 @@ struct LineBroadening{N, T} <: AbstractBroadening{T}
 end
 
 
-struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer, 
-                V <: AbstractVector{FloatT}}
+struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer}
     nλ::IntT
     χup::FloatT
     χlo::FloatT
@@ -113,7 +112,7 @@ struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer,
     λ0::FloatT  # in nm
     f_value::FloatT
     mass::FloatT
-    λ::V
+    λ::Vector{FloatT}
     PRD::Bool
     Voigt::Bool
     label_up::String
@@ -180,7 +179,7 @@ struct DepthBuffer{N <: Int,
     intensity::A
 end
 
-struct GPUinfo{T <: Float32}
+struct GPUinfo{T <: AbstractFloat}
     c_0::T
     k_B::T
     λ0::T
