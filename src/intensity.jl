@@ -80,7 +80,7 @@ end
 """
 Calculate continuum optical depth in the vertical direction,
 from the observer to the stellar interior. The wavelength
-is defined by σ_itp,
+is defined by σ_itp.
 """
 function calc_τ_cont!(
     atm::Atmosphere1D{1, T},

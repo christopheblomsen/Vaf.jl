@@ -105,156 +105,139 @@ end
 
 
 """
-Reads atmosphere in the input format of MULTI3D.
+Reads atmosphere in the input format of MULTI3D. Only Float32 atmospheres
+are supported at the moment.
 """
-function read_atmos_multi3d(mesh_file, atmos_file; FloatT=Float32, grph=2.380491f-24)
+function read_atmos_multi3d(mesh_file, atmos_file; grph=2.380491f-24)
     # Get parameters and height scale
     u_l = ustrip(1f0u"cm" |> u"m")
     u_v = ustrip(1f0u"km" |> u"m")
-    nx, ny, nz, x, y, z = read_mesh(mesh_file; FloatT=FloatT)
+    nx::Int64, ny::Int64, nz::Int64, x, y, z = read_mesh(mesh_file)
     x .*= u_l
     y .*= u_l
     z .*= u_l
-    # Get atmosphere
+    # Get atmosphere and transpose
     fobj = open(atmos_file, "r")
-    shape = (nx, ny, nz)
-    temperature = Array{FloatT}(undef, nx, ny, nz)
-    electron_density = similar(temperature)
-    vx = similar(temperature)
-    vy = similar(temperature)
-    vz = similar(temperature)
-    nH = similar(temperature)
-    read!(fobj, electron_density)
-    read!(fobj, temperature)
-    read!(fobj, vx)
-    read!(fobj, vy)
-    read!(fobj, vz)
-    read!(fobj, nH)  # rho
+    tmp = Array{Float32}(undef, nx, ny, nz)
+    read!(fobj, tmp)
+    electron_density = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    temperature = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    vx = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    vy = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    vz = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    nH = permutedims(tmp, (3, 2, 1))
     close(fobj)
+    proton_density = similar(temperature)
+
+    # unit conversion and ion frac
     rho_to_nH = 1 / (grph * u_l^3)
-    # Transposed arrays
-    temperature_tr = Array{FloatT}(undef, nz, nx, ny)
-    electron_density_tr = similar(temperature_tr)
-    proton_density_tr = similar(temperature_tr)
-    vx_tr = similar(temperature_tr)
-    vy_tr = similar(temperature_tr)
-    vz_tr = similar(temperature_tr)
-    nH_tr = similar(temperature_tr)
-    # Convert units, get ionisation, transpose
-    Threads.@threads for i in 1:nz
-        for j in 1:ny, k in 1:nx
-            ne = electron_density[k, j, i] / u_l^3
-            ionfrac = Vaf.h_ionfrac_saha(temperature[k, j, i], ne)
-            proton_density_tr[i, j, k] = nH[k, j, i] * rho_to_nH * ionfrac
-            nH_tr[i, j, k] = nH[k, j, i] * rho_to_nH * (1 - ionfrac)
-            temperature_tr[i, j, k] = temperature[k, j, i]
-            electron_density_tr[i, j, k] = ne
-            vx_tr[i, j, k] = vx[k, j, i] * u_v
-            vy_tr[i, j, k] = vy[k, j, i] * u_v
-            vz_tr[i, j, k] = vz[k, j, i] * u_v
-        end
+
+    Threads.@threads for i in eachindex(temperature)
+        electron_density[i] = electron_density[i] / u_l^3
+        ionfrac = Muspel.h_ionfrac_saha(temperature[i], electron_density[i])
+        proton_density[i] = nH[i] * rho_to_nH * ionfrac
+        nH[i] *= rho_to_nH * (1 - ionfrac)
+        vx[i] *= u_v
+        vy[i] *= u_v
+        vz[i] *= u_v
     end
+
     return Atmosphere3D(
-        Int64(nx),
-        Int64(ny),
-        Int64(nz),
+        nx,
+        ny,
+        nz,
         x,
         y,
         z,
-        temperature_tr,
-        vx_tr,
-        vy_tr,
-        vz_tr,
-        electron_density_tr,
-        nH_tr,
-        proton_density_tr,
+        temperature,
+        vx,
+        vy,
+        vz,
+        electron_density,
+        nH,
+        proton_density,
     )
 end
 
 
 """
 Reads atmosphere in the input format of MULTI3D, at the same time as the
-hydrogen populations. Only works for a H NLTE run.
+hydrogen populations. Only works for a H NLTE run. Only Float32 files
+are supported at the moment.
 """
 function read_atmos_hpops_multi3d(
         mesh_file, atmos_file, hpops_file;
-        nlevels=6, FloatT=Float32, grph=2.380491f-24
+        nlevels=6, grph=2.380491f-24
 )
     # Get parameters and height scale
     u_l = ustrip(1f0u"cm" |> u"m")
     u_v = ustrip(1f0u"km" |> u"m")
-    nx, ny, nz, x, y, z = read_mesh(mesh_file; FloatT=FloatT)
+    nx::Int64, ny::Int64, nz::Int64, x, y, z = read_mesh(mesh_file)
     x .*= u_l
     y .*= u_l
     z .*= u_l
     # Get hydrogen populations
-    h_pops = Array{FloatT}(undef, nx, ny, nz, nlevels)
+    h_pops = Array{Float32}(undef, nx, ny, nz, nlevels)
     read!(hpops_file, h_pops)
     Threads.@threads for i in eachindex(h_pops)
         h_pops[i] = h_pops[i] / u_l^3
     end
     h1_pops = sum(h_pops[:, :, :, 1:end-1], dims=4)[:, :, :, 1]
-    # Get atmosphere
+    # Get atmosphere and transpose
     fobj = open(atmos_file, "r")
-    shape = (nx, ny, nz)
-    block_size = nx * ny * nz * sizeof(FloatT)
-    temperature = Array{FloatT}(undef, nx, ny, nz)
-    electron_density = similar(temperature)
-    vx = similar(temperature)
-    vy = similar(temperature)
-    vz = similar(temperature)
-    read!(fobj, electron_density)
-    read!(fobj, temperature)
-    read!(fobj, vx)
-    read!(fobj, vy)
-    #seek(fobj, block_size * 4)
-    read!(fobj, vz)
+    tmp = Array{Float32}(undef, nx, ny, nz)
+    read!(fobj, tmp)
+    electron_density = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    temperature = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    vx = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    vy = permutedims(tmp, (3, 2, 1))
+    read!(fobj, tmp)
+    vz = permutedims(tmp, (3, 2, 1))
     close(fobj)
-    # Transposed arrays
-    temperature_tr = Array{FloatT}(undef, nz, nx, ny)
-    electron_density_tr = similar(temperature_tr)
-    proton_density_tr = similar(temperature_tr)
-    h1_pops_tr = similar(temperature_tr)
-    vx_tr = similar(temperature_tr)
-    vy_tr = similar(temperature_tr)
-    vz_tr = similar(temperature_tr)
-    # Convert units, transpose
-    Threads.@threads for i in 1:nz
-        for j in 1:ny, k in 1:nx
-            vx_tr[i, j, k] = vx[k, j, i] * u_v
-            vy_tr[i, j, k] = vy[k, j, i] * u_v
-            vz_tr[i, j, k] = vz[k, j, i] * u_v
-            h1_pops_tr[i, j, k] = h1_pops[k, j, i]
-            temperature_tr[i, j, k] = temperature[k, j, i]
-            proton_density_tr[i, j, k] = h_pops[k, j, i, end]
-            electron_density_tr[i, j, k] = electron_density[k, j, i] / u_l^3
-        end
+    proton_density = permutedims(h_pops[:, :, :, end], (3, 2, 1))
+    HI_density = permutedims(h1_pops, (3, 2, 1))
+
+    Threads.@threads for i in eachindex(temperature)
+        electron_density[i] /= u_l^3
+        vx[i] *= u_v
+        vy[i] *= u_v
+        vz[i] *= u_v
     end
+
     atm = Atmosphere3D(
-        Int64(nx),
-        Int64(ny),
-        Int64(nz),
+        nx,
+        ny,
+        nz,
         x,
         y,
         z,
-        temperature_tr,
-        vx_tr,
-        vy_tr,
-        vz_tr,
-        electron_density_tr,
-        h1_pops_tr,
-        proton_density_tr,
+        temperature,
+        vx,
+        vy,
+        vz,
+        electron_density,
+        HI_density,
+        proton_density,
     )
     return atm, PermutedDimsArray(h_pops, (3, 2, 1, 4))
 end
 
 
 """
-Reads NLTE populations from MULTI3D output. Does NOT permute dims.
+Reads NLTE populations from MULTI3D output. Does NOT permute dims. Only Float32
+files are supported at the moment.
 """
-function read_pops_multi3d(pop_file, nx, ny, nz, nlevels; FloatT=Float32)::Array{FloatT, 4}
+function read_pops_multi3d(pop_file, nx, ny, nz, nlevels)::Array{Float32, 4}
     u_l = ustrip(1f0u"cm" |> u"m")
-    pops = Array{FloatT}(undef, nx, ny, nz, nlevels)
+    pops = Array{Float32}(undef, nx, ny, nz, nlevels)
     read!(pop_file, pops)
     Threads.@threads for i in eachindex(pops)
         pops[i] /= u_l^3
@@ -266,20 +249,22 @@ end
 """
 Reads mesh file from Bifrost or MULTI3D.
 """
-function read_mesh(mesh_file; FloatT=Float32)
+function read_mesh(mesh_file)
     # Read all values into a single 1D array
-    tmp = [a for a in vec(permutedims(readdlm(mesh_file))) if a != ""]
+    tmp::Vector{Float32} = Float32.(
+        [a for a in vec(permutedims(readdlm(mesh_file))) if a != ""]
+    )
     inc = 1
-    nx = Int32(tmp[inc])
+    nx = Int64(tmp[inc])
     inc += 1
-    x = FloatT.(tmp[inc:inc + nx - 1])
+    x = tmp[inc:inc + nx - 1]
     inc += nx
-    ny = Int32(tmp[inc])
+    ny = Int64(tmp[inc])
     inc += 1
-    y = FloatT.(tmp[inc:inc + ny - 1])
+    y = tmp[inc:inc + ny - 1]
     inc += ny
-    nz = Int32(tmp[inc])
+    nz = Int64(tmp[inc])
     inc += 1
-    z = FloatT.(tmp[inc:end])
+    z = tmp[inc:end]
     return (nx, ny, nz, x, y, z)
 end
