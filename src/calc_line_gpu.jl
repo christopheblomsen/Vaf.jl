@@ -417,6 +417,125 @@ function calc_line_inclined_gpu!(
     return nothing
 end
 
+"""
+function average_J!(intensity_in, intensity_out, weights_μ, weights_ϕ)
+
+Calculates the average intensity over the line of sight and the azimuthal angle.
+"""
+function average_J!(intensity_in, intensity_out, weights_μ, weights_ϕ)
+    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
+    @inbounds if (ix <= size(intensity_in, 3) && iy <= size(intensity_in, 2))
+        for iz in 1:size(intensity_in, 1)
+            intensity_out[iz, iy, ix] += intensity_in[iz, iy, ix] * weights_μ * weights_ϕ
+        end
+    end
+    return nothing
+end
+
+"""
+function calc_J_global!(J, nθ, line, atmos, n_up, n_lo, σ_itp, intensity)
+
+Calculate the global intensity over the line of sight and the azimuthal angle.
+Requires the precalc_values! function to be run before this function.
+
+"""
+function calc_J_global!(J, nθ, line, atmos, n_up, n_lo, σ_itp, intensity)
+    values_μ, weights_μ = gauss_quadrature(nθ)
+    (nz, ny, nx) = size(intensity)
+
+    nϕ = [0, π/2, π, 3π/2]
+
+    threads = (8, 8)
+    blocks = (63, 63)
+    CUDA.@allowscalar dx = dy = atmos.x[2] - atmos.x[1]
+
+    α_cont = CUDA.zeros(Float32, (nz, ny, nx))
+    α_line = CUDA.zeros(Float32, (nz, ny, nx))
+    S_cont = CUDA.zeros(Float32, (nz, ny, nx))
+    S_line = CUDA.zeros(Float32, (nz, ny, nx))
+    damp = CUDA.zeros(Float32, (nz, ny, nx))
+    ΔλD = CUDA.zeros(Float32, (nz, ny, nx))
+    v_los = CUDA.zeros(Float32, (nz, ny, nx))
+
+    α_cont_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    α_line_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    S_cont_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    S_line_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    damp_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    ΔλD_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+
+    CUDA.@sync begin
+        @cuda threads=threads blocks=blocks precalc_values!(
+                                    α_cont, 
+                                    α_line, 
+                                    S_cont, 
+                                    S_line, 
+                                    damp, 
+                                    ΔλD, 
+                                    line, 
+                                    atmos, 
+                                    n_up, 
+                                    n_lo, 
+                                    σ_itp)
+    end
+
+    for (μ, weights_μ) in zip(values_μ, weights_μ)
+        #intensity_inclined = CUDA.zeros(Float32, (new_z, ny, nx))
+        for (i, iϕ) in enumerate(nϕ)
+            
+            α_c_10 = log10.(α_cont)
+            α_line_10 = log10.(α_line)
+            S_cont_10 = log10.(S_cont)
+            S_line_10 = log10.(S_line)
+            damp_10 = log10.(damp)
+            ΔλD_10 = log10.(ΔλD)
+
+            incline_data_gpu!(α_c_10, α_cont_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(α_line_10, α_line_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(S_cont_10, S_cont_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(S_line_10, S_line_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(damp_10, damp_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(ΔλD_10, ΔλD_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+
+            α_cont_inclined = 10 .^ α_cont_inclined
+            α_line_inclined = 10 .^ α_line_inclined
+            S_cont_inclined = 10 .^ S_cont_inclined
+            S_line_inclined = 10 .^ S_line_inclined
+            damp_inclined = 10 .^ damp_inclined
+            ΔλD_inclined = 10 .^ ΔλD_inclined
+
+            project_vlos_gpu!( 
+                atmos.velocity_x,
+                atmos.velocity_y,
+                atmos.velocity_z,
+                v_los,
+                μ,
+                iϕ,
+                threads,
+                blocks,
+                )
+            
+            CUDA.@sync begin
+                @cuda threads=(8, 8) blocks=(63, 63) calc_line_inclined_gpu!(
+                                        line, 
+                                        atmos, 
+                                        α_cont_inclined, 
+                                        α_line_inclined, 
+                                        S_cont_inclined, 
+                                        S_line_inclined, 
+                                        damp_inclined, 
+                                        ΔλD_inclined, 
+                                        v_los,
+                                        μ,
+                                        intensity)
+            end
+            CUDA.@sync @cuda threads=(8, 8) blocks=(63, 63) average_J!(intensity, J, weights_μ, 1/4)
+        end
+    end
+    return nothing
+end
+
 Adapt.@adapt_structure Atmosphere1D
 Adapt.@adapt_structure Atmosphere3D
 Adapt.@adapt_structure ExtinctionItpNLTE

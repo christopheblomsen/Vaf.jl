@@ -20,6 +20,7 @@ export humlicek!, voigt_profile
 export precalc_values!, calc_line_gpu!, calc_line_inclined_gpu!
 export voigt_humlicek, incline_data_gpu!, incline_x!, incline_y!
 export project_vlos_gpu!, project_kernel!
+export gauss_quadrature, calc_J_global!, average_J!
 
 
 using AtomicData
