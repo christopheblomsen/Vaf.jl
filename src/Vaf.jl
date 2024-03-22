@@ -17,8 +17,14 @@ export calc_line_1D!, inner_loop!
 export incline_atmos, incline_data!, incline_data_inv!, project_vector!
 export addition!, subtract!, multiply!, divide!
 export humlicek!, voigt_profile
+export precalc_values!, calc_line_gpu!, calc_line_inclined_gpu!
+export voigt_humlicek, incline_data_gpu!, incline_x!, incline_y!
+export project_vlos_gpu!, project_kernel!
 
 
+using AtomicData
+using CUDA
+using Adapt
 using AtomicData
 using Interpolations
 using PeriodicTable
@@ -45,5 +51,7 @@ include("incline.jl")
 include("gpu_arithmetics.jl")
 include("gpu_solution.jl")
 include("voigt.jl")
+include("calc_line_gpu.jl")
+include("gpu_incline.jl")
 
 end
