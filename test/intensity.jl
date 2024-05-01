@@ -3,8 +3,8 @@ using AtomicData
 @testset "intensity.jl" begin
     FALC_RH_file = joinpath(@__DIR__, "..", "data", "atmospheres", "FALC.hdf5")
     H_ATOM_file = "test_atoms/H_test.yaml"
+    atm = read_atmos_rh(FALC_RH_file)[1, 1]
     @testset "calc_line_1D!" begin
-        atm = read_atmos_rh(FALC_RH_file)[1, 1]
         h_atom = read_atom(H_ATOM_file)
         my_line = h_atom.lines[5]  # Halpha for example
         # Populations from an RH run with the FALC atmosphere
@@ -80,5 +80,24 @@ using AtomicData
         calc_line_1D!(my_line, buf, atm, n_u * 0, n_u * 0, σ_itp, voigt_itp)  # no line
         @test all(buf.intensity .== buf.intensity[1])
         @test isapprox(buf.intensity[1], 28.538631, rtol=1e-3)
+    end
+    @testset "calc_τ_cont!" begin
+        σ_itp = get_σ_itp(atm, 500f0, empty([""]))
+        tau1 = Vector{Float32}(undef, atm.nz)
+        tau2 = Vector{Float32}(undef, atm.nz)
+        calc_τ_cont!(atm, tau1, σ_itp)
+        @test tau1[1] == 0
+        # Testing against implementation
+        @test tau1[end] ≈ 19.67434
+        @test minimum(log10.(tau1[2:end])) > -9
+        # Testing with reversed atmosphere, final integration should be the same
+        rev_atm = deepcopy(atm)
+        rev_atm.temperature[:] = reverse(atm.temperature)
+        rev_atm.electron_density[:] = reverse(atm.electron_density)
+        rev_atm.proton_density[:] = reverse(atm.proton_density)
+        rev_atm.hydrogen1_density[:] = reverse(atm.hydrogen1_density)
+        rev_atm.z[:] = reverse(atm.z)
+        calc_τ_cont!(rev_atm, tau2, σ_itp)
+        @test tau1[end] ≈ tau2[end]
     end
 end

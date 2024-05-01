@@ -119,9 +119,9 @@ import PhysicalConstants.CODATA2018: h, c_0
         tr = ["lev1", "lev2"]
         χ = [10., 10.5, 11.0] * u"aJ"
         stage = [1, 1, 2]
-        g = [2, 8, 2]
+        g = [2, 2, 2]
         level_ids = ["lev1", "lev2", "lev1_ion1"]
-        label = ["a", "b", "c"]
+        label = ["2SE", "2PO", "H II"]
         mass = 1e-26u"kg"
         data = YAML.load_file("test_atoms/atom_test.yaml")
         dline = data["radiative_bound_bound"][4]
@@ -129,19 +129,26 @@ import PhysicalConstants.CODATA2018: h, c_0
         # General:
         @test line.χup == 10.5
         @test line.χlo == 10.0
-        @test line.gup == 8
+        @test line.gup == 2
         @test line.glo == 2
         @test line.Aul == ustrip(calc_Aul(line.λ0 * u"nm", line.glo / line.gup, line.f_value))
         @test line.Blu ≈ 1.4616286808620544e-8
-        @test line.Bul ≈ 3.654071702155136e-9
+        @test line.Bul ≈ 1.4616286808620544e-8
         @test line.λ0 ≈ 397.2891714297857
         @test line.f_value == dline["f_value"]
-        @test line.label_up == "b"
-        @test line.label_lo == "a"
+        @test line.label_up == "2PO"
+        @test line.label_lo == "2SE"
         @test line.γ.coeff ≈ [0, 0.000617172159983022, 2.3e-15]  # will be valid only with Transparency.jl >= 0.2.1
         @test line.γ.temp_exp == [1/6, 0, 0]
         @test line.γ.electron_exp == [1, 2/3, 0]
         @test line.γ.hydrogen_exp == [0, 0, 1]
+        # test Zeeman components
+        @test line.σr_strength ≈ [1.]
+        @test line.π_strength ≈ [0.5, 0.5]
+        @test line.σb_strength ≈ [1.]
+        @test line.σr_shift ≈ [-4/3]
+        @test line.σb_shift ≈ [4/3]
+        @test line.π_shift ≈ [2/3, -2/3]
         # when "data" in keys:
         @test line.nλ == 3
         @test line.λ == [100.0, 200.0, 300.0]

@@ -66,11 +66,11 @@ end
 
 
 function create_voigt_itp(a::AbstractArray{T}, v::AbstractRange) where {T <: AbstractFloat}
-    tmp = Array{T, 2}(undef, length(a), length(v))
+    tmp = Array{Complex{T}, 2}(undef, length(a), length(v))
     Threads.@threads for iv in eachindex(v)
         for (ia, a_value) in enumerate(a)
             z = a_value - v[iv] * im
-            tmp[ia, iv] = real(erfcx(z))
+            tmp[ia, iv] = erfcx(z)
         end
     end
     return linear_interpolation((a, v), tmp, extrapolation_bc=Line())

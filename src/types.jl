@@ -100,8 +100,16 @@ struct LineBroadening{N, T} <: AbstractBroadening{T}
 end
 
 
-struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer, 
-                V <: AbstractVector{FloatT}}
+struct AtomicLine{
+    N,
+    FloatT <: AbstractFloat,
+    IntT <: Integer,
+    Vl <:AbstractVector{FloatT},
+    Vb <:AbstractVector{<: Real},
+    Vp <:AbstractVector{<: Real},
+    Vr <:AbstractVector{<: Real},
+    S <: Union{Nothing, String},
+}
     nλ::IntT
     χup::FloatT
     χlo::FloatT
@@ -113,12 +121,18 @@ struct AtomicLine{N, FloatT <: AbstractFloat, IntT <: Integer,
     λ0::FloatT  # in nm
     f_value::FloatT
     mass::FloatT
-    λ::V
+    λ::Vl
     PRD::Bool
     Voigt::Bool
-    label_up::String
-    label_lo::String
+    label_up::S
+    label_lo::S
     γ::LineBroadening{N, FloatT}
+    σr_strength::Vr
+    σr_shift::Vr
+    π_strength::Vp
+    π_shift::Vp
+    σb_strength::Vb
+    σb_shift::Vb
 end
 
 
@@ -173,20 +187,31 @@ struct RTBuffer{T <: AbstractFloat}
     end
 end
 
-struct DepthBuffer{N <: Int,
-                    T <: AbstractFloat, 
-                    A <: AbstractArray{T, N}}
-    ndep::Int
-    intensity::A
-end
 
-struct GPUinfo{T <: Float32}
-    c_0::T
-    k_B::T
-    λ0::T
-    mass::T
-    γ_energy::T
-    Bul::T
-    Blu::T
-    Aul::T
+struct RTBufferStokes{T <: AbstractFloat}
+    ndep::Int
+    nλ::Int
+    stokes::Array{T, 2}
+    profiles::Array{T, 2}
+    α_c::Vector{T}
+    j_c::Vector{T}
+    α_l::Vector{T}
+    j_l::Vector{T}
+    αI::Vector{T}
+    ΔλD::Vector{T}
+    adamp::Vector{T}
+    int_tmp::Array{T, 2}
+    function RTBufferStokes(ndep, nλ; t::Type{T}=Float32) where T
+        stokes = Array{T}(undef, nλ, 4)
+        profiles = Array{T}(undef, 6, ndep)
+        α_c = Vector{T}(undef, ndep)
+        j_c = Vector{T}(undef, ndep)
+        α_l = Vector{T}(undef, ndep)
+        j_l = Vector{T}(undef, ndep)
+        αI = Vector{T}(undef, ndep)
+        ΔλD = Vector{T}(undef, ndep)
+        adamp = Vector{T}(undef, ndep)
+        int_tmp = Array{T}(undef, ndep, 4)
+        new{T}(ndep, nλ, stokes, profiles, α_c, j_c, α_l, j_l, αI, ΔλD, adamp, int_tmp)
+    end
 end

@@ -135,6 +135,13 @@ function read_line(line::Dict, χ, g, stage, level_ids, label, mass)
     # Energy of the first ionised stage above upper level
     χ∞ = minimum(χ[stage .== stage[up] + 1])
     broadening = _read_broadening(line, mass, χ[up], χ[lo], χ∞, stage[up])
+    # Get Zeeman components
+    Ju = (g[up] - 1) // 2
+    Jl = (g[lo] - 1) // 2
+    Su, Lu = parse_label_LS(label[up])
+    Sl, Ll = parse_label_LS(label[lo])
+    σr_S, σr_Δ, π_S, π_Δ, σb_S, σb_Δ = get_zeeman_components(Sl, Ll, Jl, Su, Lu, Ju)
+
     return AtomicLine(
         nλ,
         ustrip(χ[up]),
@@ -152,6 +159,12 @@ function read_line(line::Dict, χ, g, stage, level_ids, label, mass)
         label[up],
         label[lo],
         broadening,
+        σr_S,
+        σr_Δ,
+        π_S,
+        π_Δ,
+        σb_S,
+        σb_Δ,
     )
 end
 

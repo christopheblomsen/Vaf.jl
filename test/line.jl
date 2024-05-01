@@ -19,7 +19,7 @@ import SpecialFunctions: erfcx
     # check that table points are indeed the Voigt function
     for i in eachindex(a)
         for j in eachindex(v)
-            results[i, j] = tmp(a[i], v[j]) ≈ real(erfcx(a[i] - v[j]*im))
+            results[i, j] = tmp(a[i], v[j]) ≈ erfcx(a[i] - v[j]*im)
         end
     end
     @test all(results)
