@@ -58,8 +58,8 @@ function incline_x!(data_in, data_out, ∂x∂z, z, dx)
 
     if (l <= nx) && (n <= nz)
         shift_x = ∂x∂z * z[n] / (nx*dx)
-        (k, ac, bc, ad, bd) = Muspel._spline_coeffs(shift_x, nx)
-        m1, p0, p1, p2 = Muspel._spline_stencil(l, k, nx)
+        (k, ac, bc, ad, bd) = Vaf._spline_coeffs(shift_x, nx)
+        m1, p0, p1, p2 = Vaf._spline_stencil(l, k, nx)
         for m in 1:ny
             data_out[n,m,l] = ac*data_in[n,m,p0] + bc*data_in[n,m,p1] -
                               ad*data_in[n,m,m1] + bd*data_in[n,m,p2]
@@ -82,8 +82,8 @@ function incline_y!(data_in, data_out, ∂y∂z, z, dy)
 
     if (m <= ny) && (n <= nz)
         shift_y = ∂y∂z * z[n] / (ny*dy)
-        (k, ac, bc, ad, bd) = Muspel._spline_coeffs(shift_y, ny)
-        m1, p0, p1, p2 = Muspel._spline_stencil(m, k, ny)
+        (k, ac, bc, ad, bd) = Vaf._spline_coeffs(shift_y, ny)
+        m1, p0, p1, p2 = Vaf._spline_stencil(m, k, ny)
         for l in 1:nx
             data_out[n,m,l] = ac*data_in[n,p0,l] + bc*data_in[n,p1,l] -
                               ad*data_in[n,m1,l] + bd*data_in[n,p2,l]
