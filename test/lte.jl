@@ -58,9 +58,9 @@
         2.707838454354065e-10,
         4.24625895794503e-5,
     ]
-    @test Vaf.h_ionfrac_saha(0f0, 1f10) == 0
-    @test Vaf.h_ionfrac_saha(9500f0, 1f20) ≈ 0.57733727
-    @test Vaf.h_ionfrac_saha(9500f0, 1f22) ≈ 0.013475458
-    @test isa(Vaf.h_ionfrac_saha(9500f0, 1f22), Float32)
-    @test isa(Vaf.h_ionfrac_saha(9500., 1e22), Float64)
+    @test Muspel.h_ionfrac_saha(0f0, 1f10) == 0
+    @test Muspel.h_ionfrac_saha(9500f0, 1f20) ≈ 0.57733727
+    @test Muspel.h_ionfrac_saha(9500f0, 1f22) ≈ 0.013475458
+    @test isa(Muspel.h_ionfrac_saha(9500f0, 1f22), Float32)
+    @test isa(Muspel.h_ionfrac_saha(9500., 1e22), Float64)
 end

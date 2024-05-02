@@ -139,7 +139,7 @@ function read_atmos_multi3d(mesh_file, atmos_file; grph=2.380491f-24)
 
     Threads.@threads for i in eachindex(temperature)
         electron_density[i] = electron_density[i] / u_l^3
-        ionfrac = Muspel.h_ionfrac_saha(temperature[i], electron_density[i])
+        ionfrac = Vaf.h_ionfrac_saha(temperature[i], electron_density[i])
         proton_density[i] = nH[i] * rho_to_nH * ionfrac
         nH[i] *= rho_to_nH * (1 - ionfrac)
         vx[i] *= u_v

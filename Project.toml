@@ -1,11 +1,10 @@
 name = "Vaf"
 uuid = "81f36a18-366d-4264-8c1f-e36009a86ea9"
-authors = ["Tiago M. D. Pereira", "Edvarda Harnes", "Christophe K. Blomsen"]
-version = "0.1.0-DEV"
+authors = ["Tiago M. D. Pereira", "Edvarda Harnes"]
+version = "0.2.0-Dev"
 
 [deps]
 AtomicData = "6b77412b-f4b7-4495-8b9c-778517285205"
-CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 FortranFiles = "c58ffaec-ab22-586d-bfc5-781a99fd0b10"
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
@@ -22,9 +21,9 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [compat]
 AtomicData = "^0.1.4"
-DelimitedFiles = "^1.6"
 FortranFiles = "^0.6"
-HDF5 = "^0.16, 0.17"
+DelimitedFiles = "^1.6"
+HDF5 = "^0.17"
 Interpolations = "^0.14"
 PeriodicTable = "^1"
 PhysicalConstants = "^0.2.1"

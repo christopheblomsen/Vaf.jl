@@ -1,4 +1,4 @@
-using Muspel
+using Vaf
 using AtomicData
 using HDF5
 using ProgressMeter

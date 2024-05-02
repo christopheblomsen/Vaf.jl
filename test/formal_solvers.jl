@@ -1,8 +1,8 @@
 @testset "formal_solvers.jl" begin
     @testset "Weights" begin
-        @test all(Vaf._w2(60.) .== (1, 1))
-        @test all(Vaf._w2(1.) .≈ (1-exp(-1), 1 - 2*exp(-1)))
-        @test all(Vaf._w2(1f-6) .≈ (9.999995f-7, 4.9999967f-13))
+        @test all(Muspel._w2(60.) .== (1, 1))
+        @test all(Muspel._w2(1.) .≈ (1-exp(-1), 1 - 2*exp(-1)))
+        @test all(Muspel._w2(1f-6) .≈ (9.999995f-7, 4.9999967f-13))
     end
     @testset "Piecewise" begin
         # Constant source function
