@@ -191,7 +191,7 @@ function calc_line_gpu!(
     return nothing
 end
 
-function calc_line_cpu!(
+function calc_line_cpu_single!(
     line::AtomicLine,
     atm::Atmosphere1D{3, T},
     n_up::AbstractArray{T, 3},
@@ -203,16 +203,17 @@ function calc_line_cpu!(
     ny = atm.ny
     nx = atm.nx
     γ_energy = γ_mult / line.λ0
-    
-    int_tmp = @MVector zeros(Float32, global_ndep)
-    α_c = @MVector zeros(Float32, global_ndep)
-    α_line = @MVector zeros(Float32, global_ndep)
-    S_cont = @MVector zeros(Float32, global_ndep)
-    S_line = @MVector zeros(Float32, global_ndep)
-    damp = @MVector zeros(Float32, global_ndep)
-    ΔλD = @MVector zeros(Float32, global_ndep)
 
-    for i in 1:nx, j in 1:ny
+    for i in 1:nx
+        int_tmp = @MVector zeros(Float32, global_ndep)
+        α_c = @MVector zeros(Float32, global_ndep)
+        α_line = @MVector zeros(Float32, global_ndep)
+        S_cont = @MVector zeros(Float32, global_ndep)
+        S_line = @MVector zeros(Float32, global_ndep)
+        damp = @MVector zeros(Float32, global_ndep)
+        ΔλD = @MVector zeros(Float32, global_ndep)
+            
+        for j in 1:ny
             # before wave loop, calculate
             for k in 1:nz
                 α_c[k] = α_cont(
@@ -236,14 +237,16 @@ function calc_line_cpu!(
                         n_lo[k, j, i] * line.Blu - n_up[k, j, i] * line.Bul) * 1f9  # to m^-1
                 S_line[k] = γ_energy * n_up[k, j, i] * line.Aul * 1f-3 / α_line[k]   # to kW m^2 nm^-1
             end
-
+            
             for (w, λ) in enumerate(line.λ)
+                # Boundary condition
                 v = (λ - line.λ0 + line.λ0 * atm.velocity_z[nz, j, i] / c_0u) / ΔλD[nz]
-                profile = voigt_humlicek(damp[nz], abs(v)) / ΔλD[nz] * invSqrtPi
+                profile = voigt_humlicek(damp[nz], abs(v)) / (sqrt(π) * ΔλD[nz])
                 α_old = α_c[nz] + α_line[nz] * profile
                 S_old = S_cont[nz]  # at depth, S_total = S_cont = B because of LTE
                 int_tmp[nz] = S_old  # correct for line source function in LTE, CRD
-
+                int_old = S_old
+    
                 # piecewise explicitly
                 incr = -1 
                 for k in nz-1:incr:1 
@@ -267,6 +270,90 @@ function calc_line_cpu!(
                 end
             end
         end
+    end
+    return nothing
+end
+
+function calc_line_cpu!(
+    line::AtomicLine,
+    atm::Atmosphere1D{3, T},
+    n_up::AbstractArray{T, 3},
+    n_lo::AbstractArray{T, 3},
+    σ_itp::ExtinctionItpNLTE{<:Real},
+    intensity::AbstractArray{T, 3},
+) where T <: AbstractFloat
+    nz = atm.nz
+    ny = atm.ny
+    nx = atm.nx
+    γ_energy = γ_mult / line.λ0
+
+    Threads.@threads for i in 1:nx
+        int_tmp = @MVector zeros(Float32, global_ndep)
+        α_c = @MVector zeros(Float32, global_ndep)
+        α_line = @MVector zeros(Float32, global_ndep)
+        S_cont = @MVector zeros(Float32, global_ndep)
+        S_line = @MVector zeros(Float32, global_ndep)
+        damp = @MVector zeros(Float32, global_ndep)
+        ΔλD = @MVector zeros(Float32, global_ndep)
+            
+        for j in 1:ny
+            # before wave loop, calculate
+            for k in 1:nz
+                α_c[k] = α_cont(
+                    σ_itp,
+                    atm.temperature[k, j, i],
+                    atm.electron_density[k, j, i],
+                    atm.hydrogen1_density[k, j, i],
+                    atm.proton_density[k, j, i],
+                )
+                S_cont[k] = blackbody_λ(σ_itp.λ, atm.temperature[k, j, i])
+                
+                ΔλD[k] = doppler_width(line.λ0, line.mass, atm.temperature[k, j, i])
+                γ = calc_broadening(
+                    line.γ,
+                    atm.temperature[k, j, i],
+                    atm.electron_density[k, j, i],
+                    atm.hydrogen1_density[k, j, i],
+                )
+                damp[k] = damping(γ, line.λ0, ΔλD[k]) 
+                α_line[k] = γ_energy * (
+                        n_lo[k, j, i] * line.Blu - n_up[k, j, i] * line.Bul) * 1f9  # to m^-1
+                S_line[k] = γ_energy * n_up[k, j, i] * line.Aul * 1f-3 / α_line[k]   # to kW m^2 nm^-1
+            end
+            
+            for (w, λ) in enumerate(line.λ)
+                # Boundary condition
+                v = (λ - line.λ0 + line.λ0 * atm.velocity_z[nz, j, i] / c_0u) / ΔλD[nz]
+                profile = voigt_humlicek(damp[nz], abs(v)) / (sqrt(π) * ΔλD[nz])
+                α_old = α_c[nz] + α_line[nz] * profile
+                S_old = S_cont[nz]  # at depth, S_total = S_cont = B because of LTE
+                int_tmp[nz] = S_old  # correct for line source function in LTE, CRD
+                int_old = S_old
+    
+                # piecewise explicitly
+                incr = -1 
+                for k in nz-1:incr:1 
+                    # calculate all of these, all of the time:
+                    v = (λ - line.λ0 + line.λ0 * atm.velocity_z[k, j, i] / c_0u) / ΔλD[k]
+                    profile = voigt_humlicek(damp[k], abs(v)) / ΔλD[k] * invSqrtPi
+                    η = α_line[k] * profile / α_c[k]
+                    
+                    α_new = α_c[k] + α_line[k] * profile
+                    S_new = (η * S_line[k] + S_cont[k]) / (1 + η)
+                    
+                    Δτ = abs(atm.z[k] - atm.z[k-incr]) * (α_new + α_old) / 2
+                    ΔS = (S_old - S_new) / Δτ
+                    w1, w2 = Vaf._w2(Δτ)
+                    int_tmp[k] = (1 - w1)*int_tmp[k-incr] + w1*S_new + w2*ΔS
+        
+                    S_old = S_new
+                    α_old = α_new
+                    
+                    intensity[j, i, w] = int_tmp[k]
+                end
+            end
+        end
+    end
     return nothing
 end
 
@@ -570,20 +657,6 @@ function calc_line_inclined_gpu!(
     μ::Float64,
     intensity::CuDeviceArray{T, 3}
     ) where T <: AbstractFloat
-
-#function calc_line_inclined_gpu!(
-#    line::AtomicLine,
-#    atm::Atmosphere3D{T},
-#    α_c::AbstractArray{T, 3},
-#    α_line::AbstractArray{T, 3},
-#    S_cont::AbstractArray{T, 3},
-#    S_line::AbstractArray{T, 3},
-#    damp::AbstractArray{T, 3},
-#    ΔλD::AbstractArray{T, 3},
-#    v_los::AbstractArray{T, 3},
-#    μ::Float64,
-#    intensity::AbstractArray{T, 3},
-#    ) where T <: AbstractFloat
 
     i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
     j = (blockIdx().y - 1) * blockDim().y + threadIdx().y
@@ -971,8 +1044,295 @@ function calc_line_cpu_save_values!(
     return nothing
 end
 
+"""
+Angle average mean intensity calculations
+"""
+function average_J_cpu!(intensity_in, intensity_out, weights_μ, weights_ϕ)
+    for ix in 1:size(intensity_in, 3), iy in 1:size(intensity_in, 2), iz in 1:size(intensity_in, 1)
+        intensity_out[iz, iy, ix] += intensity_in[iz, iy, ix] * weights_μ * weights_ϕ
+    end
+    return nothing
+end
 
+function calc_J_global_cpu!(J, nθ, line, atmos, n_up, n_lo, σ_itp, intensity)
+    values_μ, weights_μ = gauss_quadrature(nθ)
+    (nz, ny, nx) = size(intensity)
 
+    nϕ = [0, π/2, π, 3π/2]
+    dx = dy = atmos.x[2] - atmos.x[1]
+
+    α_cont = zeros(Float32, (nz, ny, nx))
+    α_line = zeros(Float32, (nz, ny, nx))
+    S_cont = zeros(Float32, (nz, ny, nx))
+    S_line = zeros(Float32, (nz, ny, nx))
+    damp = zeros(Float32, (nz, ny, nx))
+    ΔλD = zeros(Float32, (nz, ny, nx))
+    v_los = zeros(Float32, (nz, ny, nx))
+
+    α_cont_inclined = zeros(Float32, (nz, ny, nx))
+    α_line_inclined = zeros(Float32, (nz, ny, nx))
+    S_cont_inclined = zeros(Float32, (nz, ny, nx))
+    S_line_inclined = zeros(Float32, (nz, ny, nx))
+    damp_inclined = zeros(Float32, (nz, ny, nx))
+    ΔλD_inclined = zeros(Float32, (nz, ny, nx))
+
+    precalc_values2_cpu_single!(
+                    α_cont, 
+                    α_line, 
+                    S_cont, 
+                    S_line, 
+                    damp, 
+                    ΔλD, 
+                    line, 
+                    atmos, 
+                    n_up, 
+                    n_lo, 
+                    σ_itp)
+
+    for (μ, weights_μ) in zip(values_μ, weights_μ)
+        #intensity_inclined = CUDA.zeros(Float32, (new_z, ny, nx))
+        for (i, iϕ) in enumerate(nϕ)
+            α_c_10 = log10.(α_cont)
+            α_line_10 = log10.(α_line)
+            S_cont_10 = log10.(S_cont)
+            S_line_10 = log10.(S_line)
+            damp_10 = log10.(damp)
+            ΔλD_10 = log10.(ΔλD)
+
+            incline_data_cpu!(α_c_10, α_cont_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(α_line_10, α_line_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(S_cont_10, S_cont_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(S_line_10, S_line_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(damp_10, damp_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(ΔλD_10, ΔλD_inclined, atmos.z, dx, dy, μ, iϕ)
+
+            α_cont_inclined = 10 .^ α_cont_inclined
+            α_line_inclined = 10 .^ α_line_inclined
+            S_cont_inclined = 10 .^ S_cont_inclined
+            S_line_inclined = 10 .^ S_line_inclined
+            damp_inclined = 10 .^ damp_inclined
+            ΔλD_inclined = 10 .^ ΔλD_inclined
+
+            project_vlos_cpu!( 
+                atmos.velocity_x,
+                atmos.velocity_y,
+                atmos.velocity_z,
+                v_los,
+                μ,
+                iϕ,
+                )
+            calc_line_inclined_cpu!(
+                                    line, 
+                                    atmos, 
+                                    α_cont_inclined, 
+                                    α_line_inclined, 
+                                    S_cont_inclined, 
+                                    S_line_inclined, 
+                                    damp_inclined, 
+                                    ΔλD_inclined, 
+                                    v_los,
+                                    μ,
+                                    intensity)
+            average_J_cpu!(intensity, J, weights_μ, 1/4)
+        end
+    end
+    return nothing
+end
+
+function calc_J_global_cpu_thread!(J, nθ, line, atmos, n_up, n_lo, σ_itp, intensity)
+    values_μ, weights_μ = gauss_quadrature(nθ)
+    (nz, ny, nx) = size(intensity)
+
+    nϕ = [0, π/2, π, 3π/2]
+    dx = dy = atmos.x[2] - atmos.x[1]
+
+    α_cont = zeros(Float32, (nz, ny, nx))
+    α_line = zeros(Float32, (nz, ny, nx))
+    S_cont = zeros(Float32, (nz, ny, nx))
+    S_line = zeros(Float32, (nz, ny, nx))
+    damp = zeros(Float32, (nz, ny, nx))
+    ΔλD = zeros(Float32, (nz, ny, nx))
+    v_los = zeros(Float32, (nz, ny, nx))
+
+    α_cont_inclined = zeros(Float32, (nz, ny, nx))
+    α_line_inclined = zeros(Float32, (nz, ny, nx))
+    S_cont_inclined = zeros(Float32, (nz, ny, nx))
+    S_line_inclined = zeros(Float32, (nz, ny, nx))
+    damp_inclined = zeros(Float32, (nz, ny, nx))
+    ΔλD_inclined = zeros(Float32, (nz, ny, nx))
+
+    precalc_values2_cpu_single!(
+                    α_cont, 
+                    α_line, 
+                    S_cont, 
+                    S_line, 
+                    damp, 
+                    ΔλD, 
+                    line, 
+                    atmos, 
+                    n_up, 
+                    n_lo, 
+                    σ_itp)
+
+    for (μ, weights_μ) in zip(values_μ, weights_μ)
+        #intensity_inclined = CUDA.zeros(Float32, (new_z, ny, nx))
+        for (i, iϕ) in enumerate(nϕ)
+            α_c_10 = log10.(α_cont)
+            α_line_10 = log10.(α_line)
+            S_cont_10 = log10.(S_cont)
+            S_line_10 = log10.(S_line)
+            damp_10 = log10.(damp)
+            ΔλD_10 = log10.(ΔλD)
+
+            incline_data_cpu!(α_c_10, α_cont_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(α_line_10, α_line_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(S_cont_10, S_cont_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(S_line_10, S_line_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(damp_10, damp_inclined, atmos.z, dx, dy, μ, iϕ)
+            incline_data_cpu!(ΔλD_10, ΔλD_inclined, atmos.z, dx, dy, μ, iϕ)
+
+            α_cont_inclined = 10 .^ α_cont_inclined
+            α_line_inclined = 10 .^ α_line_inclined
+            S_cont_inclined = 10 .^ S_cont_inclined
+            S_line_inclined = 10 .^ S_line_inclined
+            damp_inclined = 10 .^ damp_inclined
+            ΔλD_inclined = 10 .^ ΔλD_inclined
+
+            project_vlos_cpu!( 
+                atmos.velocity_x,
+                atmos.velocity_y,
+                atmos.velocity_z,
+                v_los,
+                μ,
+                iϕ,
+                )
+            calc_line_inclined_cpu_thread!(
+                                    line, 
+                                    atmos, 
+                                    α_cont_inclined, 
+                                    α_line_inclined, 
+                                    S_cont_inclined, 
+                                    S_line_inclined, 
+                                    damp_inclined, 
+                                    ΔλD_inclined, 
+                                    v_los,
+                                    μ,
+                                    intensity)
+            average_J_cpu!(intensity, J, weights_μ, 1/4)
+        end
+    end
+    return nothing
+end
+
+"""
+Angle average mean intensity calculations on the GPU
+"""
+function average_J!(intensity_in, intensity_out, weights_μ, weights_ϕ)
+    ix = (blockIdx().x - 1) * blockDim().x + threadIdx().x
+    iy = (blockIdx().y - 1) * blockDim().y + threadIdx().y
+    @inbounds if (ix <= size(intensity_in, 3) && iy <= size(intensity_in, 2))
+        for iz in 1:size(intensity_in, 1)
+            intensity_out[iz, iy, ix] += intensity_in[iz, iy, ix] * weights_μ * weights_ϕ
+        end
+    end
+    return nothing
+end
+
+function calc_J_global!(J, nθ, line, atmos, n_up, n_lo, σ_itp, intensity, threads=(8, 8), blocks=(63, 63))
+    values_μ, weights_μ = gauss_quadrature(nθ)
+    (nz, ny, nx) = size(intensity)
+
+    nϕ = [0, π/2, π, 3π/2]
+
+    #threads = (8, 8)
+    #blocks = (63, 63)
+    CUDA.@allowscalar dx = dy = atmos.x[2] - atmos.x[1]
+
+    α_cont = CUDA.zeros(Float32, (nz, ny, nx))
+    α_line = CUDA.zeros(Float32, (nz, ny, nx))
+    S_cont = CUDA.zeros(Float32, (nz, ny, nx))
+    S_line = CUDA.zeros(Float32, (nz, ny, nx))
+    damp = CUDA.zeros(Float32, (nz, ny, nx))
+    ΔλD = CUDA.zeros(Float32, (nz, ny, nx))
+    v_los = CUDA.zeros(Float32, (nz, ny, nx))
+
+    α_cont_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    α_line_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    S_cont_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    S_line_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    damp_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+    ΔλD_inclined = CUDA.zeros(Float32, (nz, ny, nx))
+
+    CUDA.@sync begin
+        @cuda threads=threads blocks=blocks precalc_values2!(
+                                    α_cont, 
+                                    α_line, 
+                                    S_cont, 
+                                    S_line, 
+                                    damp, 
+                                    ΔλD, 
+                                    line, 
+                                    atmos, 
+                                    n_up, 
+                                    n_lo, 
+                                    σ_itp)
+    end
+
+    for (μ, weights_μ) in zip(values_μ, weights_μ)
+        #intensity_inclined = CUDA.zeros(Float32, (new_z, ny, nx))
+        for (i, iϕ) in enumerate(nϕ)
+            
+            α_c_10 = log10.(α_cont)
+            α_line_10 = log10.(α_line)
+            S_cont_10 = log10.(S_cont)
+            S_line_10 = log10.(S_line)
+            damp_10 = log10.(damp)
+            ΔλD_10 = log10.(ΔλD)
+
+            incline_data_gpu!(α_c_10, α_cont_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(α_line_10, α_line_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(S_cont_10, S_cont_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(S_line_10, S_line_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(damp_10, damp_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+            incline_data_gpu!(ΔλD_10, ΔλD_inclined, atmos.z, dx, dy, μ, iϕ, threads, blocks)
+
+            α_cont_inclined = 10 .^ α_cont_inclined
+            α_line_inclined = 10 .^ α_line_inclined
+            S_cont_inclined = 10 .^ S_cont_inclined
+            S_line_inclined = 10 .^ S_line_inclined
+            damp_inclined = 10 .^ damp_inclined
+            ΔλD_inclined = 10 .^ ΔλD_inclined
+
+            project_vlos_gpu!( 
+                atmos.velocity_x,
+                atmos.velocity_y,
+                atmos.velocity_z,
+                v_los,
+                μ,
+                iϕ,
+                threads,
+                blocks,
+                )
+            
+            CUDA.@sync begin
+                @cuda threads=(8, 8) blocks=(63, 63) calc_line_inclined_gpu!(
+                                        line, 
+                                        atmos, 
+                                        α_cont_inclined, 
+                                        α_line_inclined, 
+                                        S_cont_inclined, 
+                                        S_line_inclined, 
+                                        damp_inclined, 
+                                        ΔλD_inclined, 
+                                        v_los,
+                                        μ,
+                                        intensity)
+            end
+            CUDA.@sync @cuda threads=(8, 8) blocks=(63, 63) average_J!(intensity, J, weights_μ, 1/4)
+        end
+    end
+    return nothing
+end
 #Adapt.@adapt_structure AtomicLine  # with this, it will not pass correct Nothing type
 Adapt.@adapt_structure Atmosphere1D
 Adapt.@adapt_structure Atmosphere3D
