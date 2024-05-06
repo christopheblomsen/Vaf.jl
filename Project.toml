@@ -1,6 +1,6 @@
 name = "Vaf"
 uuid = "81f36a18-366d-4264-8c1f-e36009a86ea9"
-authors = ["Tiago M. D. Pereira", "Edvarda Harnes"]
+authors = ["Tiago M. D. Pereira", "Edvarda Harnes", "Christophe K. Blomsen"]
 version = "0.2.0-Dev"
 
 [deps]
